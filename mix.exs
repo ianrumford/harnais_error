@@ -1,7 +1,7 @@
 defmodule Harnais.Error.Mixfile do
   use Mix.Project
 
-  @version "0.1.1"
+  @version "0.2.0"
 
   def project do
     [
@@ -25,7 +25,7 @@ defmodule Harnais.Error.Mixfile do
 
   defp deps do
     [
-      {:plymio_codi, ">= 0.2.0"},
+      {:plymio_codi, ">= 0.3.0"},
       {:harnais, ">= 1.0.0"},
       {:ex_doc, "~> 0.18.3", only: :dev}
     ]

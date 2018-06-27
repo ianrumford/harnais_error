@@ -14,7 +14,7 @@ exporter or a custom one.
 Add **harnais\_error** to your list of dependencies in *mix.exs*:
 
     def deps do
-      [{:harnais_error, "~> 0.1.1"}]
+      [{:harnais_error, "~> 0.2.0"}]
     end
 
 ## Examples

@@ -52,10 +52,9 @@ defmodule Harnais.Error.Status do
 
   """
 
-  require Plymio.Codi, as: CODI
+  use Plymio.Codi
   require Plymio.Fontais.Option
   alias Harnais.Error, as: HEE
-  use Plymio.Codi.Attribute
   use Harnais.Attribute
   use Harnais.Error.Attribute
 
@@ -456,8 +455,11 @@ defmodule Harnais.Error.Status do
   end
 
   @doc ~S"""
-  `export/1` takes an instance of the module's `struct` and exports
+  `export/2` takes an instance of the module's `struct` and optional *opts* and exports
   it.
+
+  If the *opts* are not empty, `update/2` is called with the `struct`
+  and `opts` before performing the export.
 
   A custom arity one export function can be given in the field
   `:export_function` and will be passed the `struct`.
@@ -504,11 +506,11 @@ defmodule Harnais.Error.Status do
 
   @since "0.1.0"
 
-  @spec export(t) :: result
+  @spec export(t, opts) :: result
 
-  def export(t)
+  def export(t, opts \\ [])
 
-  def export(%__MODULE__{@harnais_error_field_export_function => fun_export} = state) do
+  def export(%__MODULE__{@harnais_error_field_export_function => fun_export} = state, []) do
     fun_export
     |> case do
       fun when is_function(fun, 1) ->
@@ -529,6 +531,15 @@ defmodule Harnais.Error.Status do
 
       fun ->
         new_error_result(m: "export function invalid", v: fun)
+    end
+  end
+
+  def export(%__MODULE__{} = state, opts) do
+    with {:ok, state} <- state |> update(opts),
+         {:ok, _export} = result <- state |> export do
+      result
+    else
+      {:error, %{__exception__: true}} = result -> result
     end
   end
 
@@ -1132,54 +1143,6 @@ defmodule Harnais.Error.Status do
 
   def has_results?(%__MODULE__{@harnais_error_field_entries => _entries}) do
     true
-  end
-
-  @doc false
-
-  @since "0.1.0"
-
-  def harnais_status_export_result(t)
-
-  def harnais_status_export_result(%__MODULE__{} = state) do
-    with {:ok, errors} <- state |> get_errors do
-      errors
-      |> case do
-        x when is_list(x) ->
-          x
-          |> map_collate0_enum(fn
-            %__MODULE__{} = status ->
-              with {:ok, _} = result <- status |> harnais_status_export_result do
-                result
-              else
-                {:error, %{__exception__: true}} = result -> result
-              end
-
-            %HEE{} = error ->
-              with {:ok, error_export} <- error |> HEE.harnais_error_export_result() do
-                {:ok, error_export}
-              else
-                {:error, %{__exception__: true}} = result -> result
-              end
-
-            value ->
-              {:ok, [value]}
-          end)
-          |> case do
-            {:error, %{__struct__: _}} = result ->
-              result
-
-            {:ok, exports} ->
-              exports = exports |> Enum.reduce([], fn v, s -> s ++ v end)
-
-              {:ok, exports}
-          end
-
-        _ ->
-          {:ok, []}
-      end
-    else
-      {:error, %{__exception__: true}} = result -> result
-    end
   end
 
   @doc_message ~S"""

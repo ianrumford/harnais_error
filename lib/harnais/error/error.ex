@@ -108,12 +108,9 @@ defmodule Harnais.Error do
   """
 
   require Logger
-  require Plymio.Codi, as: CODI
+  use Plymio.Codi
   require Plymio.Fontais.Option
-  alias Harnais.Utility, as: HUU
   alias Harnais.Error.Status, as: HES
-  use Plymio.Fontais.Attribute
-  use Plymio.Codi.Attribute
   use Harnais.Attribute
   use Harnais.Error.Attribute
 
@@ -142,6 +139,11 @@ defmodule Harnais.Error do
   import Plymio.Fontais.Error.Utility,
     only: [
       reduce_errors_default_function: 1
+    ]
+
+  import Plymio.Funcio.Enum.Map.Gather,
+    only: [
+      map_gather0_enum: 2
     ]
 
   @harnais_error_kvs_aliases [
@@ -196,6 +198,18 @@ defmodule Harnais.Error do
 
   def short_key(key, dict \\ @harnais_error_dict_short_aliases) do
     key |> canonical_key(dict)
+  end
+
+  @doc false
+
+  def update_canonical_keys(keys, dict \\ @harnais_error_dict_aliases) do
+    with {:ok, keys} <- keys |> Plymio.Fontais.Utility.normalise_keys(),
+         key_opts <- keys |> Enum.map(fn k -> {k, nil} end),
+         {:ok, key_opts} <- key_opts |> update_canonical_opts(dict) do
+      {:ok, key_opts |> Keyword.keys()}
+    else
+      {:error, %{__exception__: true}} = result -> result
+    end
   end
 
   @harnais_error_defstruct @harnais_error_kvs_aliases
@@ -427,33 +441,46 @@ defmodule Harnais.Error do
     {:error, error}
   end
 
-  @doc false
+  defp struct_export_fields(%{__struct__: _} = state, fields) do
+    with {:ok, fields} <- fields |> Plymio.Fontais.Utility.normalise_keys() do
+      fields
+      |> map_gather0_enum(fn k ->
+        state
+        |> Map.fetch(k)
+        |> case do
+          {:ok, v} ->
+            {:ok, {k, v}}
 
-  @since "0.1.0"
+          _ ->
+            Plymio.Fontais.Error.new_key_error_result(k, [])
+        end
+      end)
+      |> case do
+        {:error, %{__struct__: _}} = result ->
+          result
 
-  # this is used in doctests
-  def harnais_error_export_result(value)
+        {:ok, gather_opts} ->
+          gather_opts
+          |> Plymio.Fontais.Funcio.gather_opts_has_error?()
+          |> case do
+            true ->
+              with {:ok, error_keys} <-
+                     gather_opts |> Plymio.Fontais.Funcio.gather_opts_error_keys_get() do
+                Plymio.Fontais.Error.new_key_error_result(
+                  error_keys,
+                  state |> Map.from_struct() |> Map.keys()
+                )
+              else
+                {:error, %{__exception__: true}} = result -> result
+              end
 
-  def harnais_error_export_result(%__MODULE__{} = error) do
-    error |> export
-  end
-
-  def harnais_error_export_result(%HES{} = status) do
-    status |> HES.harnais_status_export_result()
-  end
-
-  def harnais_error_export_result(
-        {:error, %__MODULE__{@harnais_error_field_value0 => %HES{} = status}}
-      ) do
-    status |> HES.harnais_status_export_result()
-  end
-
-  def harnais_error_export_result({:error, %__MODULE__{} = error}) do
-    error |> harnais_error_export_result
-  end
-
-  def harnais_error_export_result(%__MODULE__{@harnais_error_field_value0 => %HES{} = status}) do
-    status |> HES.harnais_status_export_result()
+            _ ->
+              gather_opts |> Plymio.Fontais.Funcio.gather_opts_ok_values_get()
+          end
+      end
+    else
+      {:error, %{__exception__: true}} = result -> result
+    end
   end
 
   defp default_export_function(result)
@@ -461,13 +488,10 @@ defmodule Harnais.Error do
   defp default_export_function(
          %__MODULE__{@harnais_error_field_export_config => format_order} = state
        ) do
-    with export <- state |> Map.from_struct(),
-         export <- export |> Map.take(format_order),
-         export <- export |> Map.to_list(),
-         export <- export |> HUU.opts_sort_keys(format_order),
+    with {:ok, format_order} <- format_order |> update_canonical_keys,
+         {:ok, export} <- state |> struct_export_fields(format_order),
          export <- export |> Enum.filter(fn {_k, v} -> v |> is_value_set end),
-         {:ok, export} <- export |> opts_short_keys,
-         true <- true do
+         {:ok, export} <- export |> opts_short_keys do
       {:ok, [error: [export]]}
     else
       {:error, %{__exception__: true}} = result -> result
@@ -475,7 +499,10 @@ defmodule Harnais.Error do
   end
 
   @doc ~S"""
-  `export/1` takes an instance of the module's `struct` and exports it.
+  `export/2` takes an instance of the module's `struct` and an optional *opts* and exports it.
+
+  If the *opts* are not empty, `update/2` is called with the `struct`
+  and `opts` before performing the export.
 
   A custom arity one export function can be given in the field `:export_function`.
 
@@ -497,22 +524,94 @@ defmodule Harnais.Error do
       ...> error |> export
       {:ok, 42}
 
+  In these two examples `:export_config` is given in the *opts* to change the fields in the export. The second example
+  show the error when an unknown field is given.
+
+      iex> {:ok, error} = [message: "something broke", type: :arg, value: 42] |> new
+      ...> error |> export(export_config: [:m, :v])
+      {:ok, [error: [[m: "something broke", v: 42]]]}
+
+      iex> {:ok, error} = [message: "something broke", type: :arg, value: 42] |> new
+      ...> {:error, export_error} = error |> export(export_config: [:m, :unknown_key])
+      ...> export_error |> Exception.message |> String.starts_with?("key :unknown_key not found")
+      true
   """
 
   @since "0.1.0"
 
-  @spec export(t) :: {:ok, any} | {:error, error}
+  @spec export(t, opts) :: {:ok, any} | {:error, error}
 
-  def export(t)
+  def export(t, opts \\ [])
 
-  def export(%__MODULE__{@harnais_error_field_export_function => fun_export} = error) do
+  def export(%__MODULE__{@harnais_error_field_export_function => fun_export} = state, []) do
     fun_export
     |> case do
       fun when is_value_set(fun) ->
-        error |> transform(fun)
+        state |> transform(fun)
 
       _ ->
-        error |> transform(&default_export_function/1)
+        state |> transform(&default_export_function/1)
+    end
+  end
+
+  def export(%__MODULE__{} = state, opts) do
+    with {:ok, state} <- state |> update(opts),
+         {:ok, _export} = result <- state |> export do
+      result
+    else
+      {:error, %{__exception__: true}} = result -> result
+    end
+  end
+
+  @doc ~S"""
+  `export_exception/1` takes an exception *struct* and optional *opts* and exports it.
+
+  If the struct is a `Harnais.Error` or `Harnais.Error.Status` their respective `export/2` functions are called.
+
+  For any other exception, `Exception.message/1` is called and `{:ok, [m: message]}` returned.
+
+  ## Examples
+
+      iex> {:ok, error} = [message: "something broke", type: :arg, value: 42] |> new
+      ...> error |> export_exception
+      {:ok, [error: [[m: "something broke", t: :arg, v: 42]]]}
+
+      iex> {:ok, error} = [add_results: [ok: 42, error: :got_an_error, error: %BadMapError{term: 42}]]
+      ...> |> Harnais.Error.Status.new
+      ...> error |> export_exception
+      {:ok, [ok: 42, error: [[v: :got_an_error]], error: [[m: "expected a map, got: 42"]]]}
+
+      iex> %RuntimeError{message: "this is a test"} |> export_exception
+      {:ok, [m: "this is a test"]}
+
+      iex> %KeyError{key: :b, term: %{a: 1}} |> export_exception
+      {:ok, [m: "key :b not found in: %{a: 1}"]}
+
+  """
+
+  @since "0.2.0"
+
+  @spec export_exception(any, any) :: {:ok, any} | {:error, error}
+
+  def export_exception(error, opts \\ [])
+
+  def export_exception(%__MODULE__{} = error, opts) do
+    error |> export(opts)
+  end
+
+  def export_exception(%HES{} = error, opts) do
+    error |> HES.export(opts)
+  end
+
+  def export_exception(error, _opts) do
+    error
+    |> Exception.exception?()
+    |> case do
+      true ->
+        {:ok, [m: error |> Exception.message()]}
+
+      _ ->
+        new_error_result(m: "exception invalid", v: error)
     end
   end
 

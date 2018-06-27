@@ -7,12 +7,6 @@ defmodule HarnaisErrorHelperTest do
       use Harnais
       alias Harnais.Error, as: HEE
       alias Harnais.Error.Status, as: HES
-
-      import Harnais.Error,
-        only: [
-          harnais_error_export_result: 1
-        ]
-
       use Harnais.Attribute
     end
   end
