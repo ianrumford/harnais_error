@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## v0.3.0
+
+### Bug Fixes
+
+The default `Harnais.Error.export_exception/2` clause was
+returning an incorrectly formatted export keyword.
+
+### New Functions
+
+`Harnais.Error.gather_export/1` takes an export, usually from
+`Harnais.Error.export/2` or `Harnais.Error.export_exception/2`, and
+tries to gathers all the values for the same key (e.g. `:ok` and `:error`) into a list.
+Usually the `:error` list will be a list of `Keyword`.
+
 ## v0.2.0
 
 ### Bug Fixes

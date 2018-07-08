@@ -507,8 +507,7 @@ defmodule Harnais.Error do
   A custom arity one export function can be given in the field `:export_function`.
 
   Otherwise the default export function is used which creates `Keyword`
-  with one key (`:error`) whose value is a list, currently with only
-  one entry which is itself a `Keyword` of the set fields in the
+  with one key (`:error`) whose value is a list of `Keyword`s of the set fields in the
   *error* where the keys are the short form of the full field name (e.g. `:m` for `:message`)
 
   If the export works, `{:ok, export}` is returned.
@@ -524,8 +523,9 @@ defmodule Harnais.Error do
       ...> error |> export
       {:ok, 42}
 
-  In these two examples `:export_config` is given in the *opts* to change the fields in the export. The second example
-  show the error when an unknown field is given.
+  In these two examples `:export_config` is given in the *opts* to
+  change the fields in the export. The second example show the error
+  when an unknown field is given.
 
       iex> {:ok, error} = [message: "something broke", type: :arg, value: 42] |> new
       ...> error |> export(export_config: [:m, :v])
@@ -582,10 +582,10 @@ defmodule Harnais.Error do
       {:ok, [ok: 42, error: [[v: :got_an_error]], error: [[m: "expected a map, got: 42"]]]}
 
       iex> %RuntimeError{message: "this is a test"} |> export_exception
-      {:ok, [m: "this is a test"]}
+      {:ok, [error: [[m: "this is a test"]]]}
 
       iex> %KeyError{key: :b, term: %{a: 1}} |> export_exception
-      {:ok, [m: "key :b not found in: %{a: 1}"]}
+      {:ok, [error: [[m: "key :b not found in: %{a: 1}"]]]}
 
   """
 
@@ -608,11 +608,125 @@ defmodule Harnais.Error do
     |> Exception.exception?()
     |> case do
       true ->
-        {:ok, [m: error |> Exception.message()]}
+        {:ok, [error: [[m: error |> Exception.message()]]]}
 
       _ ->
         new_error_result(m: "exception invalid", v: error)
     end
+  end
+
+  @doc ~S"""
+  `gather_export/1` takes an export and, if the export is a `Keyword` or list of
+  `Keyword`, gathers all the values for the same key
+  (`Keyword.get_values/2`) together.
+
+  The argument is expected to be the `export` in `{:ok, export}`
+  returned by `export/2` or `export_exception/2`.
+
+  Otherwise the export is returned unchanged as `{:ok, export}`.
+
+  ## Examples
+
+  Gathering the export of single exception may not make any differnce:
+
+      iex> {:ok, error} = [message: "something broke", type: :arg, value: 42] |> new
+      ...> {:ok, export} = error |> export_exception
+      ...> export |> gather_export
+      {:ok, [error: [[m: "something broke", t: :arg, v: 42]]]}
+
+      iex> {:ok, export} = %KeyError{key: :b, term: %{a: 1}} |> export_exception
+      ...> export |> gather_export
+      {:ok, [error: [[m: "key :b not found in: %{a: 1}"]]]}
+
+  However, when there are multiple `:ok` and/or `:error` values, they will be gathered together.
+
+      iex> {:ok, error} = [add_results:
+      ...>    [ok: 42, error: :got_an_error, error: %BadMapError{term: 42}, ok: "Hello World"]
+      ...> ] |> Harnais.Error.Status.new
+      ...> {:ok, export} = error |> export_exception
+      ...> export |> gather_export
+      {:ok, [ok: [42, "Hello World"], error: [[v: :got_an_error], [m: "expected a map, got: 42"]]]}
+
+  """
+
+  @since "0.3.0"
+
+  @spec gather_export(any) :: {:ok, any} | {:error, error}
+
+  def gather_export(export)
+
+  def gather_export(export) when is_list(export) do
+    with {:ok, export_norm} <- export |> normalise_export do
+      export =
+        export_norm
+        |> Keyword.keys()
+        |> Enum.uniq()
+        |> Enum.map(fn k -> {k, export_norm |> Keyword.get_values(k)} end)
+
+      {:ok, export}
+    else
+      _ -> {:ok, export}
+    end
+  end
+
+  def gather_export(export) do
+    {:ok, export}
+  end
+
+  @since "0.3.0"
+
+  @spec normalise_export(any) :: {:ok, any} | {:error, error}
+
+  defp normalise_export(export)
+
+  defp normalise_export([]) do
+    {:ok, []}
+  end
+
+  defp normalise_export(export) when is_list(export) do
+    export
+    |> Keyword.keyword?()
+    |> case do
+      true ->
+        {:ok, [export]}
+
+      _ ->
+        with true <- export |> Enum.all?(&Keyword.keyword?/1) do
+          {:ok, export}
+        else
+          _ -> new_error_result(m: "export not normalisable", v: export)
+        end
+    end
+    |> case do
+      {:error, %{__struct__: _}} = result ->
+        result
+
+      {:ok, export} ->
+        export =
+          export
+          |> Enum.reduce(fn v, s -> s ++ v end)
+          |> Enum.flat_map(fn
+            {:error, values} when is_list(values) ->
+              values
+              |> Keyword.keyword?()
+              |> case do
+                true ->
+                  [error: values]
+
+                _ ->
+                  values |> Enum.map(fn value -> {:error, value} end)
+              end
+
+            x ->
+              [x]
+          end)
+
+        {:ok, export}
+    end
+  end
+
+  defp normalise_export(export) do
+    new_error_result(m: "export not normalisable", v: export)
   end
 
   @doc false

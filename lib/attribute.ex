@@ -84,6 +84,7 @@ defmodule Harnais.Error.Attribute do
       @harnais_error_reason_not_module_fva :not_module_fva
       @harnais_error_reason_mismatch :mismatch
       @harnais_error_reason_missing :missing
+      @harnais_error_reason_compare :compare
 
       @harnais_error_default_message_config [
         @harnais_error_field_message,

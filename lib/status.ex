@@ -455,8 +455,8 @@ defmodule Harnais.Error.Status do
   end
 
   @doc ~S"""
-  `export/2` takes an instance of the module's `struct` and optional *opts* and exports
-  it.
+  `export/2` takes an instance of the module's `struct` and optional
+  *opts* and exports it.
 
   If the *opts* are not empty, `update/2` is called with the `struct`
   and `opts` before performing the export.
@@ -469,8 +469,9 @@ defmodule Harnais.Error.Status do
 
   Exporting an `:ok` result returns `[ok: value]`.
 
-  If an `:error` entry is not either a `Harnais.Error` or
-  `Harnais.Error.Status`, the exports calls `Exception.message/1` and returns `[error: message]`.
+  If an `:error` entry is neither a `Harnais.Error` nor
+  `Harnais.Error.Status`, `Exception.message/1` is called and
+  `[error: [m: message]]` returned.
 
   If the export works, `{:ok, export}` is returned.
 
@@ -523,10 +524,10 @@ defmodule Harnais.Error.Status do
           {:error, %{__struct__: _}} = result ->
             result
 
-          {:ok, exports} ->
-            exports = exports |> Enum.reduce([], fn v, s -> s ++ v end)
+          {:ok, export} ->
+            export = export |> Enum.reduce([], fn v, s -> s ++ v end)
 
-            {:ok, exports}
+            {:ok, export}
         end
 
       fun ->
